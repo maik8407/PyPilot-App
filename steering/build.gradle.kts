@@ -1,5 +1,13 @@
-plugins { kotlin("jvm") version "2.4.20" }
-repositories { mavenCentral() }
-dependencies { testImplementation(kotlin("test")) }
-tasks.test { useJUnitPlatform() }
+plugins { id("org.jetbrains.kotlin.jvm") }
 
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
+
+dependencies {
+    api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    testImplementation(kotlin("test"))
+}
+tasks.test { useJUnitPlatform() }
