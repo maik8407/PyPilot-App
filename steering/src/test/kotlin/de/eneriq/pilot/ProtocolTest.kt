@@ -26,6 +26,30 @@ class ProtocolTest {
         b.reset(); assertEquals(1000L, b.next())
     }
 
+    @Test fun clientStopsReconnectingAfterStop() = runBlocking {
+        val server = ServerSocket(0)
+        var accepts = 0
+        val srv = launch(Dispatchers.IO) {
+            while (isActive) {
+                val c = try { server.accept() } catch (_: Exception) { break }
+                accepts++
+                c.close()   // sofort trennen -> Client versucht es immer wieder
+            }
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val client = PypilotClient(scope, "127.0.0.1", server.localPort, listOf("ap.heading"),
+            backoff = Backoff(30, 30)) { _, _ -> }
+        client.start()
+        withTimeout(5000) { while (accepts < 3) delay(10) }
+        client.stop()
+        delay(100)
+        val n = accepts
+        delay(400)
+        assertEquals(n, accepts, "nach stop() darf nicht mehr verbunden werden")
+        assertEquals(Link.DISCONNECTED, client.link.value)
+        scope.cancel(); srv.cancel(); server.close()
+    }
+
     @Test fun clientConnectsWatchesHeartbeatsAndReconnects() = runBlocking {
         val server = ServerSocket(0)
         val received = CopyOnWriteArrayList<String>()
