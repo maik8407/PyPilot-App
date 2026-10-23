@@ -6,6 +6,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -79,11 +81,6 @@ private fun Root(onQuit: () -> Unit) {
                 else -> MapScreen(s)
             }
         }
-        // STOPP ist auf jedem Reiter sichtbar
-        Button({ PilotHub.stop() }, Modifier.fillMaxWidth().height(72.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Red, contentColor = Color.White)) {
-            Text("STOPP", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-        }
         Spacer(Modifier.height(4.dp))
     }
 
@@ -101,7 +98,7 @@ private fun SteerScreen(s: PilotState) {
     }
     val shortcuts = PilotHub.shortcutsAvailable(s)
 
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(show(s.heading), fontSize = 64.sp, fontWeight = FontWeight.Bold)
             Text("Soll ${show(s.command)}", fontSize = 26.sp, color = Teal)
@@ -112,13 +109,14 @@ private fun SteerScreen(s: PilotState) {
         Button({ PilotHub.toggleAuto() }, Modifier.fillMaxWidth().height(64.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (s.enabled) Teal else Panel, contentColor = if (s.enabled) Color.Black else Color.White)) {
-            Text(if (s.enabled) "AUTOMATIK  (tippen: Bereitschaft)" else "BEREITSCHAFT  (tippen: Automatik)",
+            Text(if (s.enabled) "AUTOMATIK AN  (tippen: Bereitschaft)" else "BEREITSCHAFT  (tippen: Automatik)",
                 fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Mode.entries.forEach { m ->
                 Button({ PilotHub.setMode(m) }, Modifier.weight(1f).height(48.dp),
+                    enabled = s.modes.isEmpty() || m.pypilot in s.modes,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (s.mode == m) Teal else Panel,
                         contentColor = if (s.mode == m) Color.Black else Color.White)) { Text(m.label) }

@@ -1,6 +1,7 @@
 package de.eneriq.pilot
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.net.InetSocketAddress
@@ -9,17 +10,22 @@ import java.net.Socket
 enum class Link { DISCONNECTED, CONNECTING, CONNECTED }
 
 /**
- * TCP-Client fuer pypilot (Port 23322): Auto-Reconnect mit Backoff, Heartbeat alle 2 s,
+ * TCP-Client fuer pypilot (Port 23322): Auto-Reconnect mit Backoff, Keepalive alle 2 s,
  * Totzeit-Erkennung (kein Datum in [staleMs] -> Verbindung gilt als tot).
  * socketFactory erlaubt auf Android die Bindung ans WLAN.
+ *
+ * send() darf von jedem Thread (auch dem Android-Hauptthread) aufgerufen werden: die Zeilen gehen in eine
+ * Warteschlange und werden von einer eigenen IO-Coroutine geschrieben (Netzwerk auf dem Hauptthread ist auf Android verboten).
+ * pypilot kennt keinen Heartbeat-Wert; eine leere Zeile wird vom Server still ignoriert und haelt die Verbindung wach.
+ * Zeilen "error=..." vom Server werden als onValue("error", text) weitergegeben.
  */
 class PypilotClient(
     private val scope: CoroutineScope,
     @Volatile var host: String,
     private val port: Int = Pypilot.PORT,
-    private val watchNames: List<String>,
+    private val watchLines: List<String>,
     private val socketFactory: () -> Socket = { Socket() },
-    private val heartbeatMs: Long = 2000,
+    private val keepaliveMs: Long = 2000,
     private val staleMs: Int = 6000,
     private val connectTimeoutMs: Int = 3000,
     private val backoff: Backoff = Backoff(),
@@ -29,7 +35,7 @@ class PypilotClient(
     val link: StateFlow<Link> = _link
 
     private var job: Job? = null
-    @Volatile private var out: java.io.Writer? = null
+    @Volatile private var outbox = Channel<String>(Channel.UNLIMITED)
     @Volatile private var current: Socket? = null
 
     fun start() {
@@ -46,28 +52,39 @@ class PypilotClient(
     /** Verbindung neu aufbauen (z. B. nach Hostwechsel). */
     fun reconnect() { runCatching { current?.close() } }
 
-    fun send(line: String): Boolean = synchronized(this) {
-        val w = out ?: return false
-        try { w.write(line + "\n"); w.flush(); true } catch (e: Exception) { runCatching { current?.close() }; false }
+    /** Zeile zum Senden vormerken. false, wenn gerade keine Verbindung steht (dann wird nichts gesendet). */
+    fun send(line: String): Boolean {
+        if (_link.value != Link.CONNECTED) return false
+        return outbox.trySend(line).isSuccess
     }
+
+    /** Beobachtung weiterer Werte nachtraeglich anfordern (gilt nur fuer die laufende Verbindung). */
+    fun watch(line: String) = send(line)
 
     private suspend fun run() {
         while (currentCoroutineContext().isActive) {
             _link.value = Link.CONNECTING
             val s = socketFactory()
-            var hb: Job? = null
+            val box = Channel<String>(Channel.UNLIMITED)
+            var writer: Job? = null
+            var keepalive: Job? = null
             try {
                 current = s
                 s.connect(InetSocketAddress(host, port), connectTimeoutMs)
                 s.soTimeout = staleMs
                 s.tcpNoDelay = true
-                out = s.getOutputStream().bufferedWriter()
-                send(watchLine(watchNames))
+                val w = s.getOutputStream().bufferedWriter()
+                watchLines.forEach { box.trySend(it) }
+                outbox = box
+                writer = scope.launch(Dispatchers.IO) {
+                    try {
+                        for (l in box) { w.write(l + "\n"); w.flush() }
+                    } catch (_: Exception) { runCatching { s.close() } }   // Schreibfehler -> Leser bricht ab -> Reconnect
+                }
                 _link.value = Link.CONNECTED
                 backoff.reset()
-                hb = scope.launch(Dispatchers.IO) {
-                    var n = 0
-                    while (isActive) { send(setLine("ap.heartbeat", (n++).toString())); delay(heartbeatMs) }
+                keepalive = scope.launch(Dispatchers.IO) {
+                    while (isActive) { box.trySend(""); delay(keepaliveMs) }
                 }
                 val r = s.getInputStream().bufferedReader()
                 while (true) {
@@ -79,8 +96,9 @@ class PypilotClient(
             } catch (_: Exception) {
                 // Verbindungsfehler oder Totzeit: unten neu verbinden
             } finally {
-                hb?.cancel()
-                out = null
+                keepalive?.cancel()
+                box.close()
+                writer?.cancel()
                 runCatching { s.close() }
                 current = null
             }

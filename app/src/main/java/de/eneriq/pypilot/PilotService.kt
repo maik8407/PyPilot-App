@@ -47,7 +47,7 @@ class PilotService : Service() {
         cm.requestNetwork(NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build(), c)
 
         val client = PypilotClient(
-            sc, PilotHub.host(this), watchNames = PilotHub.WATCH,
+            sc, PilotHub.host(this), watchLines = PilotHub.WATCH_LINES,
             socketFactory = { wifi?.socketFactory?.createSocket() ?: Socket() },
             onValue = PilotHub::onValue,
         )

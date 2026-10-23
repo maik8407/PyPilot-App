@@ -5,13 +5,14 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -84,12 +85,16 @@ fun MapScreen(s: PilotState) {
     }
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            Canvas(Modifier.fillMaxSize()
-                .pointerInput(zoom) {
-                    detectDragGestures { _, d ->
-                        val px = Geo.pixelX(clon, zoom) - d.x; val py = Geo.pixelY(clat, zoom) - d.y
+        Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+            Canvas(Modifier.fillMaxSize().clipToBounds()
+                .pointerInput(Unit) {
+                    // Verschieben und Zwei-Finger-Zoom; pro Faktor 1,6 eine Zoomstufe
+                    var acc = 1f
+                    detectTransformGestures { _, pan, gz, _ ->
+                        val px = Geo.pixelX(clon, zoom) - pan.x; val py = Geo.pixelY(clat, zoom) - pan.y
                         clon = Geo.lonOfPixel(px, zoom); clat = Geo.latOfPixel(py, zoom)
+                        acc *= gz
+                        if (acc > 1.6f && zoom < 17) { zoom++; acc = 1f } else if (acc < 1f / 1.6f && zoom > 3) { zoom--; acc = 1f }
                     }
                 }
                 .pointerInput(zoom, clat, clon) {

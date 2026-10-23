@@ -6,8 +6,8 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
-import org.json.JSONArray
 
+/** Betriebsarten; pypilot kennt "compass", "gps", "nav", "wind", "true wind" (autopilot.py, ModeProperty). */
 enum class Mode(val pypilot: String, val label: String) {
     COMPASS("compass", "Kompass"), WIND("wind", "Wind"), GPS("gps", "GPS");
 
@@ -18,6 +18,8 @@ data class PilotState(
     val link: Link = Link.DISCONNECTED,
     val enabled: Boolean = false,
     val mode: Mode? = null,
+    /** pypilot-Modi, die der Pilot mit den vorhandenen Sensoren kann (ap.modes); leer = unbekannt. */
+    val modes: List<String> = emptyList(),
     /** Aktueller Wert von ap.heading (im Wind-Modus: Windwinkel, siehe Pypilot.WIND_SIGN). */
     val heading: Double? = null,
     val command: Double? = null,
@@ -25,14 +27,14 @@ data class PilotState(
     val message: String = "",
     // Regler
     val rudder: Double? = null,
-    val headingRate: Double? = null,
-    val errorInt: Double? = null,
     val profile: String? = null,
     val profiles: List<String> = emptyList(),
-    val pilot: String = "basic",
+    val pilot: String? = null,
+    val gainInfo: List<GainInfo> = emptyList(),
     val gains: Map<String, Double> = emptyMap(),
-    val contribution: Contribution? = null,
-    val history: List<Contribution> = emptyList(),
+    /** Beitrag jedes Regelanteils zum Ruderbefehl, direkt von pypilot (ap.pilot.<pilot>.<Name>gain). */
+    val terms: Map<String, Double> = emptyMap(),
+    val history: List<Map<String, Double>> = emptyList(),
     // Mitschnitt und Ziel
     val recording: Boolean = false,
     val samples: Int = 0,
@@ -42,11 +44,14 @@ data class PilotState(
 
 /** Gemeinsamer Zustand zwischen Service und Oberflaeche. Alle Lenkbefehle laufen hier durch. */
 object PilotHub {
-    /** Namen der Werte, die pypilot gesendet werden soll. Unbekannte Namen ignoriert pypilot. */
+    /** Namen, die pypilot dauerhaft gesendet werden sollen. Die Regelparameter kommen aus der Wertliste ("values"). */
     val WATCH = listOf(
-        "ap.enabled", "ap.mode", "ap.heading", "ap.heading_command", "ap.heading_error_int",
-        "servo.command", "rudder.angle", "imu.headingrate", "ap.profile", "profiles", "ap.pilot",
-    ) + Gains.NAMES.map { "ap.pilot.basic.$it" }
+        "ap.enabled", "ap.mode", "ap.modes", "ap.heading", "ap.heading_command", "ap.pilot",
+        "rudder.angle", "profile", "profiles",
+    )
+
+    /** Beim Verbinden zu sendende Zeilen: Wertliste (einmalig bei Aenderung) und die Standardwerte. */
+    val WATCH_LINES = listOf("watch={\"values\":true}", watchLine(WATCH, 0.5))
 
     private val _state = MutableStateFlow(PilotState())
     val state: StateFlow<PilotState> = _state
@@ -59,30 +64,43 @@ object PilotHub {
 
     fun onValue(name: String, value: String) {
         val now = System.currentTimeMillis()
+        if (name == "error") { update { it.copy(message = "pypilot: ${value.take(80)}") }; return }
+        if (name == "values") { onValuesList(value); return }
         _state.update { s ->
             val n = s.copy(lastData = now)
             when (name) {
                 "ap.enabled" -> n.copy(enabled = value.trim() == "true")
                 "ap.mode" -> n.copy(mode = Mode.of(parseString(value)))
+                "ap.modes" -> n.copy(modes = Discovery.stringList(value))
                 "ap.heading" -> n.copy(heading = parseNumber(value))
                 "ap.heading_command" -> n.copy(command = parseNumber(value))
-                "ap.heading_error_int" -> n.copy(errorInt = parseNumber(value))
                 "rudder.angle" -> n.copy(rudder = parseNumber(value))
-                "servo.command" -> if (s.rudder == null) n.copy(rudder = parseNumber(value)?.times(30)) else n
-                "imu.headingrate" -> n.copy(headingRate = parseNumber(value))
-                "ap.profile" -> n.copy(profile = parseString(value))
+                "profile" -> n.copy(profile = parseString(value))
+                "profiles" -> n.copy(profiles = Discovery.stringList(value))
                 "ap.pilot" -> n.copy(pilot = parseString(value))
-                "profiles" -> n.copy(profiles = runCatching {
-                    JSONArray(value).let { a -> List(a.length()) { a.getString(it) } }
-                }.getOrDefault(s.profiles))
                 else -> {
-                    val g = name.removePrefix("ap.pilot.basic.")
-                    if (name.startsWith("ap.pilot.basic.") && g in Gains.NAMES)
-                        parseNumber(value)?.let { v -> n.copy(gains = s.gains + (g to v)) } ?: n
-                    else n
+                    val g = s.gainInfo.firstOrNull { it.valueName == name }
+                    val t = s.gainInfo.firstOrNull { it.termName == name }
+                    val v = parseNumber(value)
+                    when {
+                        v == null -> n
+                        g != null -> n.copy(gains = s.gains + (g.name to v))
+                        t != null -> n.copy(terms = s.terms + (t.name to v))
+                        else -> n
+                    }
                 }
             }
         }
+    }
+
+    /** Wertliste von pypilot: Regelparameter des aktiven Piloten finden und zusaetzlich beobachten. */
+    private fun onValuesList(json: String) {
+        val all = Discovery.gains(json)
+        val pilot = _state.value.pilot ?: all.firstOrNull { it.pilot == "basic" }?.pilot ?: all.firstOrNull()?.pilot ?: return
+        val mine = all.filter { it.pilot == pilot }
+        update { it.copy(gainInfo = mine) }
+        val names = mine.flatMap { listOf(it.valueName, it.termName) }
+        if (names.isNotEmpty()) client?.watch(watchLine(names, 0.5))   // erneutes Watch ist bei pypilot unschaedlich
     }
 
     // pypilot-Wert <-> unsere Konvention (+ = Wind von Steuerbord)
@@ -96,13 +114,15 @@ object PilotHub {
     }
 
     // --- Regler: Profil, Gains, Mitschnitt ---
-    fun setProfile(name: String) { if (send(setString("ap.profile", name))) update { it.copy(profile = name) } }
+    fun setProfile(name: String) { if (send(setString("profile", name))) update { it.copy(profile = name) } }
 
-    fun setGain(name: String, v: Double) {
-        if (send(setLine("ap.pilot.basic.$name", fmt(v)))) update { it.copy(gains = it.gains + (name to v)) }
+    /** Wert setzen; pypilot ignoriert Werte ausserhalb von min/max, deshalb hier begrenzen. */
+    fun setGain(g: GainInfo, v: Double) {
+        val c = v.coerceIn(g.min, g.max)
+        if (send(setLine(g.valueName, fmt4(c)))) update { it.copy(gains = it.gains + (g.name to c)) }
     }
 
-    /** Einmal pro Sekunde: Beitraege der Regelanteile berechnen, Verlauf fortschreiben, ggf. mitschneiden. */
+    /** Einmal pro Sekunde: Verlauf der Regelanteile fortschreiben, ggf. mitschneiden. */
     fun startSampler() {
         if (samplerJob?.isActive == true) return
         samplerJob = hubScope.launch {
@@ -110,14 +130,8 @@ object PilotHub {
                 val s = _state.value
                 val h = s.heading; val c = s.command
                 if (h != null && c != null && s.link == Link.CONNECTED) {
-                    val wind = s.mode == Mode.WIND
-                    val err = if (wind) normalize180(h - c) else normalize180(h - c)
-                    val g = s.gains
-                    val contrib = contribution(
-                        Gains(g["P"] ?: 0.0, g["I"] ?: 0.0, g["D"] ?: 0.0, g["DD"] ?: 0.0, g["FF"] ?: 0.0),
-                        error = err, errorInt = s.errorInt ?: 0.0, rate = s.headingRate ?: 0.0, accel = 0.0)
-                    if (s.recording) recorder.add(Sample(System.currentTimeMillis(), h, c, s.rudder ?: 0.0, if (wind) h else null))
-                    update { it.copy(contribution = contrib, history = (it.history + contrib).takeLast(120), samples = recorder.samples().size) }
+                    if (s.recording) recorder.add(Sample(System.currentTimeMillis(), h, c, s.rudder ?: 0.0, if (s.mode == Mode.WIND) h else null))
+                    update { it.copy(history = (it.history + it.terms).takeLast(120), samples = recorder.samples().size) }
                 }
                 delay(1000)
             }
@@ -135,37 +149,29 @@ object PilotHub {
         return f
     }
 
-    /** STOPP: Shortcut abbrechen und Automatik sofort aus. */
-    fun stop() {
+    /** Automatik aus (Bereitschaft): Shortcut und Zielfahrt enden, der Pilot gibt das Ruder frei. */
+    fun disengage() {
         cancelNav()
         cancelShortcut()
         if (send(setLine("ap.enabled", "false"))) update { it.copy(message = "") }
     }
 
-    /** Aktuellen Wert als Sollwert uebernehmen, damit das Boot nicht ruckartig dreht. */
-    private fun takeOver(mode: Mode) {
-        val h = _state.value.heading ?: return
-        send(setLine("ap.heading_command", fmt(if (mode == Mode.WIND) windOut(windIn(h)) else h)))
-    }
-
-    /** Bereitschaft <-> Automatik. */
+    /** Bereitschaft <-> Automatik. Beim Einschalten wird der aktuelle Wert Sollwert, damit das Boot nicht ruckartig dreht. */
     fun toggleAuto() {
         val s = _state.value
-        if (s.enabled) return stop()
-        val mode = s.mode ?: Mode.COMPASS
-        if (s.heading == null) return update { it.copy(message = "Kein Kurswert") }
-        if (s.mode == null && !send(setString("ap.mode", mode.pypilot))) return
-        takeOver(mode)
+        if (s.enabled) return disengage()
+        val h = s.heading ?: return update { it.copy(message = "Kein Kurswert vom Pilot") }
+        if (s.mode == null && !send(setString("ap.mode", Mode.COMPASS.pypilot))) return
+        send(setLine("ap.heading_command", fmt(if (s.mode == Mode.WIND) windOut(windIn(h)) else h)))
         shortcuts.forgetSaved()
         if (send(setLine("ap.enabled", "true"))) update { it.copy(message = "") }
     }
 
+    /** Modus wechseln; pypilot behaelt dabei den aktuellen Kurs selbst bei (autopilot.py, compute_heading_error). */
     fun setMode(mode: Mode) {
         cancelShortcut()
         shortcuts.forgetSaved()
-        if (!send(setString("ap.mode", mode.pypilot))) return
-        if (_state.value.enabled) takeOver(mode)
-        update { it.copy(message = "") }
+        if (send(setString("ap.mode", mode.pypilot))) update { it.copy(message = "") }
     }
 
     /** toStarboard = Steuerbord-Pfeil: Boot dreht nach Steuerbord. */
@@ -244,6 +250,7 @@ object PilotHub {
 
     private fun normalize360(a: Double) = ((a % 360.0) + 360.0) % 360.0
     private fun fmt(v: Double) = String.format(java.util.Locale.US, "%.1f", v)
+    private fun fmt4(v: Double) = String.format(java.util.Locale.US, "%.4f", v)
 
     // Einstellungen
     fun prefs(c: Context) = c.getSharedPreferences("pypilot", Context.MODE_PRIVATE)

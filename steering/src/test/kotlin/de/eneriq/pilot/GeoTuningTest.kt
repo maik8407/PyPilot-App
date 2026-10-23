@@ -39,9 +39,9 @@ class GeoTuningTest {
         assertTrue(sug.any { it.gain == "D" && it.factor > 1 })
     }
 
-    @Test fun biasSuggestsHigherI() {
+    @Test fun biasSuggestsHigherPR() {
         val s = gen(120) { _ -> 106.0 to 0.0 }
-        assertTrue(Tuning.suggest(s).any { it.gain == "I" && it.factor > 1 })
+        assertTrue(Tuning.suggest(s).any { it.gain == "PR" && it.factor > 1 })
     }
 
     @Test fun sluggishSuggestsHigherP() {
@@ -64,12 +64,6 @@ class GeoTuningTest {
         assertEquals(7.0, Tuning.stats(s, windMode = true)!!.mean, 1e-9)
     }
 
-    @Test fun contributionIsLinear() {
-        val c = contribution(Gains(p = 2.0, i = 0.5, d = 1.0, dd = 0.1), error = 5.0, errorInt = 10.0, rate = 2.0, accel = 3.0)
-        assertEquals(10.0, c.p, 1e-9); assertEquals(5.0, c.i, 1e-9)
-        assertEquals(2.0, c.d, 1e-9); assertEquals(0.3, c.dd, 1e-9)
-        assertEquals(17.3, c.total, 1e-9)
-    }
 
     @Test fun recorderCapsAndExportsCsv() {
         val r = Recorder(max = 3)

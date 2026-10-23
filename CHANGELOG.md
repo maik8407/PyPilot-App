@@ -2,6 +2,20 @@
 
 Format: Keep a Changelog, deutsch.
 
+## [1.3] - 2026-10-23
+### Behoben
+- Automatik, Moduswahl und alle Befehle gingen nicht: `send()` schrieb auf dem Android-Hauptthread (NetworkOnMainThreadException), der Client schloss daraufhin die Verbindung. Befehle laufen jetzt über eine Warteschlange und einen eigenen IO-Schreiber.
+- Protokoll gegen den echten pypilot-Quelltext (server.py, client.py, values.py, autopilot.py, pilots/) geprüft und angepasst: Profil heißt `profile`/`profiles` (nicht `ap.profile`); `ap.heartbeat` gibt es nicht (löste `error=invalid unknown value` aus), Keepalive ist eine Leerzeile; Regelparameter werden aus der Wertliste (`values`, `AutopilotGain`, min/max) gelesen und auf den erlaubten Bereich begrenzt (pypilot ignoriert Werte außerhalb); Pilot `basic` hat P, D, DD, PR, FF (kein I).
+- Absturz im Reiter Regler: verschachteltes `verticalScroll` (Row mit Scroll in scrollender Spalte) führte zu unendlicher Höhe. Entfernt; fehlende pypilot-Werte zeigen nur „--“.
+- Karte: Zwei-Finger-Zoom, Verschieben nur innerhalb der Kartenfläche (Clip), kein Überschieben über Menü/Reiter.
+- Fehlermeldungen des pypilot-Servers (`error=...`) erscheinen in der Statuszeile.
+### Geändert
+- STOPP-Knopf entfernt. Bereitschaft (Automatik aus) genügt; sie beendet auch Shortcuts und Zielfahrt.
+- Regelanteile kommen jetzt direkt von pypilot (`ap.pilot.<Pilot>.<Name>gain`) statt aus einer Näherung.
+- Modus-Tasten sind nach `ap.modes` aktiv/grau; pypilot behält beim Moduswechsel den Kurs selbst bei.
+- Vorschlag bei bleibender Abweichung betrifft jetzt PR (statt I).
+- Tests: Fake-Server, der das Verhalten von server.py/values.py nachbildet (Python ist auf dem PC nicht vorhanden, kein echter pypilot-Lauf).
+
 ## [1.2] - 2026-10-23
 ### Geändert
 - Auto-Update jetzt über GitHub-Releases im eigenen Repo (`maik8407/PyPilot-App`, Konstante `AppUpdater.REPO`): `releases/latest`, Version aus `tag_name`, APK-Asset wird geladen. Kein Eintrag mehr in EnerIQ-firmware nötig. Versionsvergleich als `Version` mit Tests.

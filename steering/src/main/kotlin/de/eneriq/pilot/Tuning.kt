@@ -6,19 +6,6 @@ import kotlin.math.sqrt
 /** Ein Messpunkt des Mitschnitts. Winkel in Grad, t in Millisekunden. */
 data class Sample(val t: Long, val heading: Double, val command: Double, val rudder: Double, val wind: Double? = null)
 
-/** Reglerparameter von pypilot (ap.pilot.basic.*). */
-data class Gains(val p: Double = 0.0, val i: Double = 0.0, val d: Double = 0.0, val dd: Double = 0.0, val ff: Double = 0.0) {
-    companion object { val NAMES = listOf("P", "I", "D", "DD", "FF") }
-}
-
-/** Beitrag der Regelanteile zum Ruderbefehl (Naeherung nach der PID-Form; Ist-Beitraege liefert pypilot nicht direkt). */
-data class Contribution(val p: Double, val i: Double, val d: Double, val dd: Double, val ff: Double) {
-    val total get() = p + i + d + dd + ff
-}
-
-fun contribution(g: Gains, error: Double, errorInt: Double, rate: Double, accel: Double, ffTerm: Double = 0.0) =
-    Contribution(g.p * error, g.i * errorInt, g.d * rate, g.dd * accel, g.ff * ffTerm)
-
 data class Stats(
     val n: Int, val minutes: Double, val rms: Double, val mean: Double,
     val crossingsPerMin: Double, val rudderMeanAbs: Double, val rudderReversalsPerMin: Double,
@@ -70,7 +57,7 @@ object Tuning {
                 out += Suggestion("P", 1.25, "Pilot reagiert traege (Abweichung ${f(st.rms)} Grad, kaum Schwingung): P erhoehen")
         }
         if (abs(st.mean) > 3 && st.crossingsPerMin < 3)
-            out += Suggestion("I", 1.3, "bleibende Abweichung von ${f(st.mean)} Grad: I erhoehen")
+            out += Suggestion("PR", 1.3, "bleibende Abweichung von ${f(st.mean)} Grad: PR (Positions-Wurzel) erhoehen")
         if (st.rudderReversalsPerMin > 30 && st.rms < 3)
             out += Suggestion("DD", 0.8, "Ruder sehr unruhig (${f(st.rudderReversalsPerMin)} Richtungswechsel/min) bei guter Kursgenauigkeit: DD/D senken")
         if (out.isEmpty()) out += Suggestion("-", 1.0, "keine Auffaelligkeit (Abweichung ${f(st.rms)} Grad)")
