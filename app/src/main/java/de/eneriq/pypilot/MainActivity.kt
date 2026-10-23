@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import de.eneriq.pilot.Link
 import de.eneriq.pilot.Pypilot
+import de.eneriq.pilot.ServoStatus
 import de.eneriq.pilot.normalize180
 import kotlinx.coroutines.launch
 
@@ -69,13 +70,19 @@ private fun Root(onQuit: () -> Unit) {
         Row(Modifier.fillMaxWidth().background(linkColor.copy(alpha = 0.25f), RoundedCornerShape(8.dp)).padding(start = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text(linkText, color = linkColor, fontWeight = FontWeight.Bold)
-            TextButton(onClick = { settings = true }) { Text("Einstellungen") }
+            Row {
+                TextButton(onClick = { settings = true }) { Text("Einstellungen") }
+                TextButton(onClick = onQuit) { Text("Beenden") }
+            }
         }
-        TabRow(tab, containerColor = Bg) {
-            listOf("Steuern", "Regler", "Karte").forEachIndexed { i, t -> Tab(tab == i, { tab = i }, text = { Text(t) }) }
+        // Die Karte (Zielwahl) gibt es nur im GPS-Modus
+        val tabs = if (s.mode == Mode.GPS) listOf("Steuern", "Regler", "Karte") else listOf("Steuern", "Regler")
+        val cur = if (tab >= tabs.size) 0 else tab
+        TabRow(cur, containerColor = Bg) {
+            tabs.forEachIndexed { i, t -> Tab(cur == i, { tab = i }, text = { Text(t) }) }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            when (tab) {
+            when (cur) {
                 0 -> SteerScreen(s)
                 1 -> TuneScreen(s)
                 else -> MapScreen(s)
@@ -105,6 +112,23 @@ private fun SteerScreen(s: PilotState) {
             Text(if (s.message.isNotEmpty()) s.message else " ", color = Amber, fontSize = 14.sp)
         }
 
+        // Controller-Temperatur und Autopilot-/Servo-Fehler (servo.controller_temp, servo.flags); fehlt ein Wert: "--"
+        val faults = ServoStatus.faults(s.servoFlags)
+        val hot = s.controllerTemp != null && s.maxControllerTemp != null && s.controllerTemp >= s.maxControllerTemp - 5
+        Row(Modifier.fillMaxWidth().background(Panel, RoundedCornerShape(8.dp)).padding(10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Controller " + (s.controllerTemp?.let { String.format("%.0f °C", it) } ?: "--"),
+                color = if (hot) Red else Color.White, fontSize = 14.sp)
+            Text(
+                when {
+                    faults == null -> "Fehler --"
+                    faults.isEmpty() -> "Fehler: keine"
+                    else -> "FEHLER: " + faults.joinToString(" ")
+                },
+                color = if (faults.isNullOrEmpty()) Color.Gray else Red, fontSize = 14.sp, fontWeight = if (faults.isNullOrEmpty()) FontWeight.Normal else FontWeight.Bold,
+                modifier = Modifier.weight(1f, fill = false).padding(start = 8.dp))
+        }
+        ServoStatus.notes(s.servoFlags).takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(" "), color = Amber, fontSize = 12.sp) }
+
         // Bereitschaft <-> Automatik
         Button({ PilotHub.toggleAuto() }, Modifier.fillMaxWidth().height(64.dp),
             colors = ButtonDefaults.buttonColors(
@@ -125,12 +149,15 @@ private fun SteerScreen(s: PilotState) {
 
         // Winkel: links Backbord, rechts Steuerbord
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StepButton("◄ 10", Modifier.weight(1f)) { PilotHub.nudge(10, false) }
-            StepButton("◄ 1", Modifier.weight(1f)) { PilotHub.nudge(1, false) }
-            StepButton("1 ►", Modifier.weight(1f)) { PilotHub.nudge(1, true) }
-            StepButton("10 ►", Modifier.weight(1f)) { PilotHub.nudge(10, true) }
+            StepButton(10, left = true, Modifier.weight(1f)) { PilotHub.nudge(10, false) }
+            StepButton(1, left = true, Modifier.weight(1f)) { PilotHub.nudge(1, false) }
+            StepButton(1, left = false, Modifier.weight(1f)) { PilotHub.nudge(1, true) }
+            StepButton(10, left = false, Modifier.weight(1f)) { PilotHub.nudge(10, true) }
         }
-        Text("◄ Backbord        Steuerbord ►", Modifier.fillMaxWidth(), color = Color.Gray, fontSize = 12.sp, textAlign = TextAlign.Center)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Backbord", color = Color.Gray, fontSize = 12.sp)
+            Text("Steuerbord", color = Color.Gray, fontSize = 12.sp)
+        }
 
         // Shortcuts nur in Automatik + Wind-Modus
         Text("Wind-Shortcuts" + if (shortcuts) "" else "  (nur Automatik + Wind)", color = Color.Gray, fontSize = 12.sp)
@@ -143,10 +170,32 @@ private fun SteerScreen(s: PilotState) {
 }
 
 @Composable
-private fun StepButton(label: String, modifier: Modifier, onClick: () -> Unit) =
-    Button(onClick, modifier.height(64.dp), colors = ButtonDefaults.buttonColors(containerColor = Panel, contentColor = Color.White)) {
-        Text(label, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+private fun StepButton(degrees: Int, left: Boolean, modifier: Modifier, onClick: () -> Unit) =
+    Button(onClick, modifier.height(64.dp), contentPadding = PaddingValues(4.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Panel, contentColor = Color.White)) {
+        // Pfeil UND Zahl, links Backbord, rechts Steuerbord; die Pfeile werden gezeichnet (keine Schriftzeichen)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (left) Chevrons(if (degrees >= 10) 2 else 1, true)
+            Text("$degrees", fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            if (!left) Chevrons(if (degrees >= 10) 2 else 1, false)
+        }
     }
+
+@Composable
+private fun Chevrons(count: Int, left: Boolean) {
+    val color = Teal
+    androidx.compose.foundation.Canvas(Modifier.size((10 * count + 4).dp, 18.dp)) {
+        val w = 10.dp.toPx(); val h = size.height
+        for (i in 0 until count) {
+            val x = i * w + 2.dp.toPx()
+            val p = androidx.compose.ui.graphics.Path()
+            if (left) { p.moveTo(x + w - 1.dp.toPx(), 0f); p.lineTo(x, h / 2); p.lineTo(x + w - 1.dp.toPx(), h) }
+            else { p.moveTo(x, 0f); p.lineTo(x + w - 1.dp.toPx(), h / 2); p.lineTo(x, h) }
+            p.close()
+            drawPath(p, color)
+        }
+    }
+}
 
 @Composable
 private fun ShortcutButton(label: String, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) =

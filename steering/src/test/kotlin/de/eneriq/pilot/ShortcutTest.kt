@@ -88,6 +88,43 @@ class ShortcutTest {
         assertEquals(-45.0, run(r, -110.0).last())
     }
 
+    private fun abc(sign: Double) {
+        val r = ShortcutRunner(s)
+        val a = 52.0 * sign                       // Ausgangskurs A
+        assertIs<Result.Ok>(r.start(a, a, 110.0))  // Vorsegel einholen -> B
+        val b = run(r, a).last()
+        assertEquals(110.0 * sign, b)
+        assertIs<Result.Ok>(r.start(b, b, 38.0))   // Grosssegel einholen -> C (A darf nicht ueberschrieben werden)
+        val c = run(r, b).last()
+        assertEquals(38.0 * sign, c)
+        assertEquals(a, r.saved)
+        assertIs<Result.Ok>(r.back(c, c))          // zurueck muss A anfahren
+        assertEquals(a, a.let { run(r, c).last() })
+        assertNull(r.saved)                        // erst nach dem Erreichen geloescht
+    }
+
+    @Test fun foresailThenMainsailThenBackReturnsToOriginalStarboard() = abc(1.0)
+    @Test fun foresailThenMainsailThenBackReturnsToOriginalPort() = abc(-1.0)
+
+    @Test fun savedCourseSurvivesAbortedReturnAndIsClearedOnDisengage() {
+        val r = ShortcutRunner(s)
+        r.start(52.0, 52.0, 110.0); run(r, 52.0)
+        r.back(110.0, 110.0)
+        assertIs<Tick.Step>(r.tick(110.0, 110.0))
+        assertIs<Tick.Aborted>(r.tick(-90.0, 100.0))    // Wind dreht auf andere Seite -> Abbruch
+        assertEquals(52.0, r.saved)                     // bleibt erhalten
+        r.forgetSaved()                                 // Automatik aus
+        assertNull(r.saved)
+    }
+
+    @Test fun returnNeverCrossesToOtherSideOrThroughOneEighty() {
+        val r = ShortcutRunner(s)
+        r.start(45.0, 45.0, 170.0); val b = run(r, 45.0)
+        assertTrue(b.all { it in 45.0..170.0 })
+        r.back(170.0, 170.0)
+        assertTrue(run(r, 170.0).all { it in 45.0..170.0 })
+    }
+
     @Test fun backWithoutSavedIsRejected() = assertIs<Result.Rejected>(ShortcutRunner(s).back(40.0, 40.0))
 
     @Test fun respectsConfiguredMax() {

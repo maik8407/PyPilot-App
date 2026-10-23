@@ -27,6 +27,11 @@ data class PilotState(
     val message: String = "",
     // Regler
     val rudder: Double? = null,
+    /** Controller-Temperatur in Grad C (servo.controller_temp); null, solange pypilot keine meldet. */
+    val controllerTemp: Double? = null,
+    val maxControllerTemp: Double? = null,
+    /** servo.flags als Text, z. B. "SYNC ENGAGED"; null = nicht empfangen. */
+    val servoFlags: String? = null,
     val profile: String? = null,
     val profiles: List<String> = emptyList(),
     val pilot: String? = null,
@@ -47,7 +52,7 @@ object PilotHub {
     /** Namen, die pypilot dauerhaft gesendet werden sollen. Die Regelparameter kommen aus der Wertliste ("values"). */
     val WATCH = listOf(
         "ap.enabled", "ap.mode", "ap.modes", "ap.heading", "ap.heading_command", "ap.pilot",
-        "rudder.angle", "profile", "profiles",
+        "rudder.angle", "profile", "profiles", "servo.controller_temp", "servo.flags", "servo.max_controller_temp",
     )
 
     /** Beim Verbinden zu sendende Zeilen: Wertliste (einmalig bei Aenderung) und die Standardwerte. */
@@ -69,12 +74,15 @@ object PilotHub {
         _state.update { s ->
             val n = s.copy(lastData = now)
             when (name) {
-                "ap.enabled" -> n.copy(enabled = value.trim() == "true")
+                "ap.enabled" -> { val on = value.trim() == "true"; if (!on) shortcuts.forgetSaved(); n.copy(enabled = on) }
                 "ap.mode" -> n.copy(mode = Mode.of(parseString(value)))
                 "ap.modes" -> n.copy(modes = Discovery.stringList(value))
                 "ap.heading" -> n.copy(heading = parseNumber(value))
                 "ap.heading_command" -> n.copy(command = parseNumber(value))
                 "rudder.angle" -> n.copy(rudder = parseNumber(value))
+                "servo.controller_temp" -> n.copy(controllerTemp = ServoStatus.temperature(value))
+                "servo.max_controller_temp" -> n.copy(maxControllerTemp = ServoStatus.temperature(value))
+                "servo.flags" -> n.copy(servoFlags = parseString(value))
                 "profile" -> n.copy(profile = parseString(value))
                 "profiles" -> n.copy(profiles = Discovery.stringList(value))
                 "ap.pilot" -> n.copy(pilot = parseString(value))
@@ -138,6 +146,20 @@ object PilotHub {
         }
     }
 
+    /** Regelparameter als JSON-Text (zum Teilen/Sichern): Pilot, Profil und alle Gains mit Grenzen. */
+    fun exportGains(): String {
+        val s = _state.value
+        val o = org.json.JSONObject()
+        o.put("app", "PyPilot")
+        o.put("exportiert", java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date()))
+        o.put("pilot", s.pilot ?: org.json.JSONObject.NULL)
+        o.put("profil", s.profile ?: org.json.JSONObject.NULL)
+        val g = org.json.JSONObject()
+        s.gainInfo.forEach { i -> s.gains[i.name]?.let { v -> g.put(i.name, org.json.JSONObject().put("wert", v).put("min", i.min).put("max", i.max)) } }
+        o.put("regelparameter", g)
+        return o.toString(2)
+    }
+
     fun setRecording(on: Boolean) { if (on && !_state.value.recording) recorder.clear(); update { it.copy(recording = on, samples = recorder.samples().size) } }
 
     fun suggestions(): List<Suggestion> = Tuning.suggest(recorder.samples(), _state.value.mode == Mode.WIND)
@@ -153,6 +175,7 @@ object PilotHub {
     fun disengage() {
         cancelNav()
         cancelShortcut()
+        shortcuts.forgetSaved()   // gemerkter Kurs gilt nur, solange die Automatik an ist
         if (send(setLine("ap.enabled", "false"))) update { it.copy(message = "") }
     }
 
@@ -179,8 +202,7 @@ object PilotHub {
         val s = _state.value
         val cmd = s.command ?: return update { it.copy(message = "Kein Sollwert") }
         if (!s.enabled) return update { it.copy(message = "Pilot ist aus") }
-        cancelShortcut()
-        shortcuts.forgetSaved()
+        cancelShortcut()   // gemerkter Ausgangskurs bleibt bis "Zurueck" oder Automatik aus
         when (s.mode) {
             Mode.WIND -> when (val r = steering.nudge(windIn(cmd), steps.toDouble(), toStarboard)) {
                 is Result.Ok -> { send(setLine("ap.heading_command", fmt(windOut(r.target)))); update { it.copy(message = "") } }

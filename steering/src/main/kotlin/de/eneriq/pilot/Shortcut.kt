@@ -27,12 +27,15 @@ class ShortcutRunner(
     var saved: Double? = null
         private set
 
+    private var returning = false
+
     val active get() = target != null
 
     fun start(currentWind: Double, commandSigned: Double, targetMag: Double): Result {
         val r = steering.goTo(currentWind, targetMag)
         if (r is Result.Ok) {
-            if (saved == null) saved = commandSigned   // bleibt bis "Zurueck" oder forgetSaved()
+            if (saved == null) saved = commandSigned   // Ausgangskurs: nur beim ersten Shortcut merken, nie ueberschreiben
+            returning = false
             target = r.target
             side = sideOf(currentWind)
         }
@@ -43,14 +46,14 @@ class ShortcutRunner(
     fun back(currentWind: Double, commandSigned: Double): Result {
         val s = saved ?: return Result.Rejected("Kein gespeicherter Kurs")
         val r = start(currentWind, commandSigned, abs(s))
-        if (r is Result.Ok) saved = null
+        if (r is Result.Ok) returning = true   // der gemerkte Kurs wird erst geloescht, wenn er erreicht ist
         return r
     }
 
-    /** Nach manueller Winkelaenderung: der gespeicherte Kurs ist nicht mehr aktuell. */
-    fun forgetSaved() { saved = null }
+    /** Gemerkten Kurs verwerfen (Automatik aus, Moduswechsel). */
+    fun forgetSaved() { saved = null; returning = false }
 
-    fun cancel() { target = null; side = null }
+    fun cancel() { target = null; side = null; returning = false }
 
     fun tick(currentWind: Double, commandSigned: Double): Tick {
         val t = target ?: return Tick.Idle
@@ -58,7 +61,10 @@ class ShortcutRunner(
         if (abs(currentWind - commandSigned) > maxDeviation) return abort("Boot folgt nicht")
         if (sideOf(commandSigned) != sideOf(t)) return abort("Seitenwechsel")
         val next = steering.nextStep(commandSigned, t, stepDeg)
-        if (next == t) { cancel(); return Tick.Done(next) }
+        if (next == t) {
+            if (returning) saved = null
+            cancel(); return Tick.Done(next)
+        }
         return Tick.Step(next)
     }
 

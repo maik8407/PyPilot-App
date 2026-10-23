@@ -1,6 +1,7 @@
 package de.eneriq.pypilot
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -53,10 +54,19 @@ fun TuneScreen(s: PilotState) {
             }
         }
 
+        OutlinedButton({
+            val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(android.content.Intent.EXTRA_SUBJECT, "PyPilot Regelparameter")
+                putExtra(android.content.Intent.EXTRA_TEXT, PilotHub.exportGains())
+            }
+            ctx.startActivity(android.content.Intent.createChooser(send, "Regelparameter teilen").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        }, enabled = s.gains.isNotEmpty()) { Text("Regelparameter exportieren (teilen)") }
+
         // Live-Beitraege (von pypilot berechnet: ap.pilot.<pilot>.<Name>gain)
         Text("Wirkung der Regelanteile auf das Ruder", fontSize = 16.sp)
         val names = s.gainInfo.map { it.name }
-        Contributions(names, s.terms)
+        Contributions(names, s.terms, s.history)
         History(names, s.history)
 
         // Mitschnitt
@@ -74,22 +84,26 @@ fun TuneScreen(s: PilotState) {
     }
 }
 
+/** Pro Regelanteil eine Zeile: links der Name, rechts ein festes Feld mit Mittelmarke, in dem der Balken laeuft. */
 @Composable
-private fun Contributions(names: List<String>, terms: Map<String, Double>) {
+private fun Contributions(names: List<String>, terms: Map<String, Double>, history: List<Map<String, Double>>) {
     if (names.isEmpty()) return
-    val vals = names.map { terms[it] ?: 0.0 }
-    val scale = max(0.01, vals.maxOf { abs(it) })
-    Canvas(Modifier.fillMaxWidth().height((names.size * 22).dp)) {
-        val h = size.height / names.size
-        val mid = size.width / 2
-        vals.forEachIndexed { i, v ->
-            val w = (v / scale * mid).toFloat()
-            drawRect(colorOf(i), Offset(if (w >= 0) mid else mid + w, i * h + 3f), Size(abs(w), h - 6f))
+    // gemeinsame Skala aus dem Verlauf, damit die Balken nicht bei jedem Wert ihre Groesse aendern
+    val scale = max(0.05, (history + terms).maxOfOrNull { m -> names.maxOf { abs(m[it] ?: 0.0) } } ?: 0.0)
+    names.forEachIndexed { i, n ->
+        val v = terms[n]
+        Row(Modifier.fillMaxWidth().height(28.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(n, Modifier.width(44.dp), color = colorOf(i), fontSize = 14.sp)
+            Canvas(Modifier.weight(1f).fillMaxHeight().padding(vertical = 3.dp).background(Color(0xFF1C1C1C))) {
+                val mid = size.width / 2
+                if (v != null) {
+                    val w = (v / scale * mid).toFloat().coerceIn(-mid, mid)
+                    drawRect(colorOf(i), Offset(if (w >= 0) mid else mid + w, 0f), Size(abs(w), size.height))
+                }
+                drawLine(Color.Gray, Offset(mid, 0f), Offset(mid, size.height), 2f)   // Mittelmarke = 0
+            }
+            Text(v?.let { String.format("%+.3f", it) } ?: "--", Modifier.width(64.dp), fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.End)
         }
-        drawLine(Color.Gray, Offset(mid, 0f), Offset(mid, size.height))
-    }
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        names.forEachIndexed { i, n -> Text(n + " " + String.format("%+.3f", vals[i]), color = colorOf(i), fontSize = 12.sp) }
     }
 }
 

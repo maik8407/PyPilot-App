@@ -44,7 +44,8 @@ object AppUpdater {
         val c = open(LATEST)
         c.setRequestProperty("Accept", "application/vnd.github+json")
         try {
-            if (c.responseCode == 404) return@withContext null   // noch kein Release veroeffentlicht
+            // 404: kein Release oder Repo privat -> Ursache anzeigen, nicht "aktuell" vortaeuschen
+            if (c.responseCode == 404) throw IOException("Kein Release in $REPO gefunden (noch keins veroeffentlicht oder Repo privat)")
             if (c.responseCode != 200) throw IOException("HTTP ${c.responseCode}")
             val o = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
             val tag = o.getString("tag_name")

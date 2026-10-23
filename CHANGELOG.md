@@ -2,6 +2,19 @@
 
 Format: Keep a Changelog, deutsch.
 
+## [1.4] - 2026-10-23
+### Behoben
+- „Zurück auf alten Kurs“ fährt den Ausgangskurs A an: A wird nur beim ersten Shortcut gemerkt (Vorsegel B, Großsegel C überschreiben ihn nicht) und erst nach erreichtem Zurück oder beim Ausschalten der Automatik gelöscht; ein Abbruch behält ihn. Tests für Wind von Steuerbord und Backbord, immer über die Windseite, nie durch 180°.
+- Tasten ±1/±10 einheitlich mit Pfeil und Zahl (Pfeile gezeichnet, links Backbord, rechts Steuerbord); vorher fehlte bei +10 der Pfeil (Schriftzeichen nicht in jeder Schrift vorhanden).
+- Update-Suche zeigt bei 404 (kein Release / Repo privat) die Ursache statt „aktuell“.
+### Hinzugefügt
+- Reiter Regler: pro Regelanteil eine Zeile, links Name, rechts festes Feld mit Mittelmarke, in dem der Balken läuft, dazu Zahlenwert; gemeinsame Skala aus dem Verlauf.
+- Export der Regelparameter (Pilot, Profil, Werte mit Grenzen) als JSON-Text über das Android-Teilen-Menü.
+- Karte: Home-Taste (eigene Position mittig); Ausschnitt und Zoom werden gespeichert und beim Start wiederverwendet; Kacheln dauerhaft auf dem Gerät (Arbeitsspeicher + Datei-Cache in `filesDir`, einmal geladen nie erneut), paralleles Laden.
+- Karte und Kartenziel erscheinen nur im GPS-Modus.
+- „Beenden“ in der Kopfzeile (zusätzlich zu Einstellungen und Benachrichtigung).
+- Anzeige Controller-Temperatur (`servo.controller_temp`) und Servo-/Autopilot-Fehler (`servo.flags`, Namen aus pypilot/servo.py); fehlt ein Wert, steht „--“.
+
 ## [1.3] - 2026-10-23
 ### Behoben
 - Automatik, Moduswahl und alle Befehle gingen nicht: `send()` schrieb auf dem Android-Hauptthread (NetworkOnMainThreadException), der Client schloss daraufhin die Verbindung. Befehle laufen jetzt über eine Warteschlange und einen eigenen IO-Schreiber.
