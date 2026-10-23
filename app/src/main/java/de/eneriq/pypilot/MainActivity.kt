@@ -127,6 +127,15 @@ private fun SteerScreen(s: PilotState) {
                 color = if (faults.isNullOrEmpty()) Color.Gray else Red, fontSize = 14.sp, fontWeight = if (faults.isNullOrEmpty()) FontWeight.Normal else FontWeight.Bold,
                 modifier = Modifier.weight(1f, fill = false).padding(start = 8.dp))
         }
+        // Diagnose GPS-Modus: pypilot bietet "gps" nur an, wenn gps.source nicht "none" ist (RMC mit Fix empfangen)
+        val gpsNone = s.gpsSource == "none"
+        Text(
+            "GPS-Quelle: " + (s.gpsSource ?: "--") + "   NMEA-Client: " + (s.nmeaClient?.ifEmpty { "(leer)" } ?: "--"),
+            color = if (gpsNone) Amber else Color.Gray, fontSize = 12.sp)
+        if (gpsNone) Text(
+            if (s.nmeaClient.isNullOrEmpty()) "pypilot bekommt kein GPS: nmea.client ist leer (verbindet sich nicht mit dem Sat)."
+            else "pypilot bekommt kein GPS: keine RMC-Sätze mit Fix von ${s.nmeaClient}.",
+            color = Amber, fontSize = 12.sp)
         ServoStatus.notes(s.servoFlags).takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(" "), color = Amber, fontSize = 12.sp) }
 
         // Bereitschaft <-> Automatik

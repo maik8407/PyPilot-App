@@ -32,6 +32,10 @@ data class PilotState(
     val maxControllerTemp: Double? = null,
     /** servo.flags als Text, z. B. "SYNC ENGAGED"; null = nicht empfangen. */
     val servoFlags: String? = null,
+    /** gps.source: "none", solange pypilot keine GPS-Daten (RMC mit Fix) bekommt; sonst z. B. "tcp", "serial", "gpsd". */
+    val gpsSource: String? = null,
+    /** nmea.client: Adresse (Host:Port), zu der sich pypilot als NMEA-Client verbindet (leer = keine). */
+    val nmeaClient: String? = null,
     val profile: String? = null,
     val profiles: List<String> = emptyList(),
     val pilot: String? = null,
@@ -53,6 +57,7 @@ object PilotHub {
     val WATCH = listOf(
         "ap.enabled", "ap.mode", "ap.modes", "ap.heading", "ap.heading_command", "ap.pilot",
         "rudder.angle", "profile", "profiles", "servo.controller_temp", "servo.flags", "servo.max_controller_temp",
+        "gps.source", "nmea.client",
     )
 
     /** Beim Verbinden zu sendende Zeilen: Wertliste (einmalig bei Aenderung) und die Standardwerte. */
@@ -83,6 +88,8 @@ object PilotHub {
                 "servo.controller_temp" -> n.copy(controllerTemp = ServoStatus.temperature(value))
                 "servo.max_controller_temp" -> n.copy(maxControllerTemp = ServoStatus.temperature(value))
                 "servo.flags" -> n.copy(servoFlags = parseString(value))
+                "gps.source" -> n.copy(gpsSource = parseString(value))
+                "nmea.client" -> n.copy(nmeaClient = parseString(value))
                 "profile" -> n.copy(profile = parseString(value))
                 "profiles" -> n.copy(profiles = Discovery.stringList(value))
                 "ap.pilot" -> n.copy(pilot = parseString(value))

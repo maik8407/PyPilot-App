@@ -13,6 +13,7 @@ Format: Keep a Changelog, deutsch.
 - Karte: Home-Taste (eigene Position mittig); Ausschnitt und Zoom werden gespeichert und beim Start wiederverwendet; Kacheln dauerhaft auf dem Gerät (Arbeitsspeicher + Datei-Cache in `filesDir`, einmal geladen nie erneut), paralleles Laden.
 - Karte und Kartenziel erscheinen nur im GPS-Modus.
 - „Beenden“ in der Kopfzeile (zusätzlich zu Einstellungen und Benachrichtigung).
+- GPS-Diagnose auf der Hauptseite: zeigt `gps.source` und `nmea.client` und erklärt, warum pypilot den GPS-Modus nicht anbietet (nur bei `gps.source` ≠ none, d. h. RMC mit Fix empfangen).
 - Anzeige Controller-Temperatur (`servo.controller_temp`) und Servo-/Autopilot-Fehler (`servo.flags`, Namen aus pypilot/servo.py); fehlt ein Wert, steht „--“.
 
 ## [1.3] - 2026-10-23
