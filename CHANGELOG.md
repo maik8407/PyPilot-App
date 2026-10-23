@@ -2,12 +2,25 @@
 
 Format: Keep a Changelog, deutsch.
 
-## [Unveröffentlicht]
+## [1.1] - 2026-10-23
+### Behoben
+- Mehrfacher Dauer-Alarm beim Start: Der Alarmton wurde bei jedem Statuswechsel neu gestartet, ohne den vorherigen zu stoppen (nur der letzte wurde beendet), und der Service konnte mehrfach starten. Der Alarm ist komplett entfernt, der Verbindungsstatus erscheint nur noch in der Oberfläche.
+- App ließ sich nicht schließen: Service lief mit `START_STICKY` weiter und baute die Verbindung neu auf. Jetzt endet alles (Service, Sockets, Reconnect-Schleife, Benachrichtigung) bei Zurück, bei Wischen aus der Übersicht (`onTaskRemoved`), über „Beenden“ in der Benachrichtigung und im Einstellungsmenü. Test: Client verbindet nach `stop()` nicht mehr.
 ### Hinzugefügt
-- Modul `steering`: Lenklogik (Windwinkel mit Vorzeichen, Steuerbord/Backbord-Drehung, Maximalwinkel 170°, keine Seitenwechsel) mit 11 Tests, alle grün.
-- `PypilotClient` (TCP 23322, `name=wert`, `watch`): Auto-Reconnect mit Backoff (1–15 s), Heartbeat `ap.heartbeat` alle 2 s, Totzeit-Erkennung nach 6 s; 4 Tests mit Fake-Server.
-- Android-App Stufe 1 (`app`): Foreground-Service mit WLAN-Bindung, Modi Kompass/Wind/GPS, ±1/±10 (Steuerbord-Pfeil dreht immer nach Steuerbord, im Wind-Modus über `Steering`), einstellbarer Maximalwinkel (Vorgabe 170°), STOPP-Knopf, Verbindungsalarm (Alarmton nach 4 s ohne Verbindung).
+- Taste Bereitschaft ⇄ Automatik; beim Einschalten wird der aktuelle Kurs/Windwinkel als Sollwert übernommen. STOPP auf jedem Reiter.
+- Wind-Shortcuts (nur Automatik + Wind): Vorsegel einholen (Vorgabe 110°), Großsegel einholen (Vorgabe 38°), Zurück auf alten Kurs. Schrittweise 10°/s, immer auf der Windseite, nie über den Maximalwinkel, Abbruch bei Windseitenwechsel oder wenn das Boot nicht folgt; STOPP bricht ab. 10 Tests.
+- Reiter Regler: Profil (`ap.profile`) wählen, Gains P/I/D/DD/FF um ±10 % ändern, Live-Balken und Verlauf der Regelanteile (Näherung aus Gains und Messwerten), Datenmitschnitt mit CSV-Export und Vorschlägen zur Parameteranpassung (Heuristik mit Begründung, wird nie automatisch angewendet).
+- Reiter Karte (OpenStreetMap-Kacheln wie in EnerIQ-Handy, mit Cache): Ziel antippen, „Anfahren“ führt den Kurs im GPS-Modus nach (Position vom Handy-GPS, Hysterese 2°, Ankunft bei 0,05 sm).
+- Auto-Update wie in EnerIQ-Handy: `apps.json` im Repo `maik8407/EnerIQ-firmware`, Schlüssel `pypilot`.
+- Einstellbar: Adresse, Maximalwinkel, Shortcut-Winkel.
+### Geändert
+- Version 1.1 (versionCode 2).
+
+## [Unveröffentlicht → 0.1]
+### Hinzugefügt
+- Modul `steering`: Lenklogik mit 11 Tests. `PypilotClient` (TCP 23322, `name=wert`, `watch`) mit Auto-Reconnect, Heartbeat alle 2 s, Totzeit-Erkennung.
+- Android-App Stufe 1: Foreground-Service, Modi Kompass/Wind/GPS, ±1/±10, STOPP.
 
 ### Hinweise
 - Wind-Vorzeichen von pypilot ist ungeprüft: Konstante `Pypilot.WIND_SIGN` (Protocol.kt), erst am Boot testen.
-- Einstellbar: pypilot-Adresse (Vorgabe 10.10.10.1), Maximalwinkel.
+- pypilot-Namen für Regler (`ap.pilot.basic.P` …, `ap.heading_error_int`, `rudder.angle`, `imu.headingrate`, `profiles`) sind nach Kenntnis des Protokolls gesetzt und gegen echtes pypilot ungetestet.
