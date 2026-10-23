@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.os.Build
 import android.widget.Toast
+import de.eneriq.pilot.Version
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -16,20 +17,16 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Selbst-Update wie in der EnerIQ-Handy-App: apps.json im oeffentlichen Repo maik8407/EnerIQ-firmware
- * nennt je App die neueste Version und die APK (Schluessel "pypilot"). Die APK wird geladen und ueber den
- * PackageInstaller installiert; Android fragt dabei nach (beim ersten Mal auch, ob die App Apps installieren darf).
+ * Selbst-Update ueber GitHub-Releases: das neueste Release des eigenen Repos ([REPO]) nennt im tag_name die
+ * Version (z. B. "v1.2") und haengt die APK als Asset an. Die APK wird geladen und ueber den PackageInstaller
+ * installiert; Android fragt dabei nach (beim ersten Mal auch, ob die App Apps installieren darf).
  */
 object AppUpdater {
-    const val INDEX = "https://raw.githubusercontent.com/maik8407/EnerIQ-firmware/main/apps/apps.json"
-    const val KEY = "pypilot"
+    /** GitHub-Repo mit den Releases (Besitzer/Name). */
+    const val REPO = "maik8407/PyPilot-App"
+    const val LATEST = "https://api.github.com/repos/$REPO/releases/latest"
 
-    data class Info(val versionCode: Long, val versionName: String, val url: String, val notes: String)
-
-    fun installedCode(ctx: Context): Long {
-        val pi = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
-        return if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode else @Suppress("DEPRECATION") pi.versionCode.toLong()
-    }
+    data class Info(val versionName: String, val url: String, val notes: String)
 
     fun installedName(ctx: Context): String = ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "?"
 
@@ -44,12 +41,19 @@ object AppUpdater {
 
     /** Neuere Version als die installierte, sonst null. */
     suspend fun check(ctx: Context): Info? = withContext(Dispatchers.IO) {
-        val c = open(INDEX)
+        val c = open(LATEST)
+        c.setRequestProperty("Accept", "application/vnd.github+json")
         try {
+            if (c.responseCode == 404) return@withContext null   // noch kein Release veroeffentlicht
             if (c.responseCode != 200) throw IOException("HTTP ${c.responseCode}")
-            val o = JSONObject(c.inputStream.bufferedReader().use { it.readText() }).getJSONObject(KEY)
-            val info = Info(o.getLong("versionCode"), o.getString("versionName"), o.getString("apk"), o.optString("notes"))
-            if (info.versionCode > installedCode(ctx)) info else null
+            val o = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
+            val tag = o.getString("tag_name")
+            if (!Version.isNewer(tag, installedName(ctx))) return@withContext null
+            val assets = o.getJSONArray("assets")
+            val apk = (0 until assets.length()).map { assets.getJSONObject(it) }
+                .firstOrNull { it.getString("name").endsWith(".apk") }
+                ?: throw IOException("Release $tag enthaelt keine APK")
+            Info(tag.removePrefix("v"), apk.getString("browser_download_url"), o.optString("body"))
         } finally { c.disconnect() }
     }
 

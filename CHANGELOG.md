@@ -2,6 +2,10 @@
 
 Format: Keep a Changelog, deutsch.
 
+## [1.2] - 2026-10-23
+### Geändert
+- Auto-Update jetzt über GitHub-Releases im eigenen Repo (`maik8407/PyPilot-App`, Konstante `AppUpdater.REPO`): `releases/latest`, Version aus `tag_name`, APK-Asset wird geladen. Kein Eintrag mehr in EnerIQ-firmware nötig. Versionsvergleich als `Version` mit Tests.
+
 ## [1.1] - 2026-10-23
 ### Behoben
 - Mehrfacher Dauer-Alarm beim Start: Der Alarmton wurde bei jedem Statuswechsel neu gestartet, ohne den vorherigen zu stoppen (nur der letzte wurde beendet), und der Service konnte mehrfach starten. Der Alarm ist komplett entfernt, der Verbindungsstatus erscheint nur noch in der Oberfläche.
@@ -11,7 +15,7 @@ Format: Keep a Changelog, deutsch.
 - Wind-Shortcuts (nur Automatik + Wind): Vorsegel einholen (Vorgabe 110°), Großsegel einholen (Vorgabe 38°), Zurück auf alten Kurs. Schrittweise 10°/s, immer auf der Windseite, nie über den Maximalwinkel, Abbruch bei Windseitenwechsel oder wenn das Boot nicht folgt; STOPP bricht ab. 10 Tests.
 - Reiter Regler: Profil (`ap.profile`) wählen, Gains P/I/D/DD/FF um ±10 % ändern, Live-Balken und Verlauf der Regelanteile (Näherung aus Gains und Messwerten), Datenmitschnitt mit CSV-Export und Vorschlägen zur Parameteranpassung (Heuristik mit Begründung, wird nie automatisch angewendet).
 - Reiter Karte (OpenStreetMap-Kacheln wie in EnerIQ-Handy, mit Cache): Ziel antippen, „Anfahren“ führt den Kurs im GPS-Modus nach (Position vom Handy-GPS, Hysterese 2°, Ankunft bei 0,05 sm).
-- Auto-Update wie in EnerIQ-Handy: `apps.json` im Repo `maik8407/EnerIQ-firmware`, Schlüssel `pypilot`.
+- Auto-Update (in 1.2 auf GitHub-Releases umgestellt).
 - Einstellbar: Adresse, Maximalwinkel, Shortcut-Winkel.
 ### Geändert
 - Version 1.1 (versionCode 2).
